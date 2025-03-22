@@ -1,8 +1,8 @@
 # Intel RealSense Depth Camera compatible Python package for live 6 DOF pose estimation.
 ---
 ## Installation
-This repository is extremely dependent on (FoundationPose)[https://github.com/NVlabs/FoundationPose] and (Segment Anything)[https://github.com/facebookresearch/segment-anything?tab=readme-ov-file]. Please follow the instructions of these two repositories to configure the environment.
-Then, follow (librealsense Python warpper)[https://github.com/IntelRealSense/librealsense/tree/master/wrappers/python#installation] to install the packages for the Intel RealSense camera.
+This repository is extremely dependent on [FoundationPose](https://github.com/NVlabs/FoundationPose) and [Segment Anything](https://github.com/facebookresearch/segment-anything?tab=readme-ov-file). Please follow the instructions of these two repositories to configure the environment.
+Then, follow [librealsense Python warpper](https://github.com/IntelRealSense/librealsense/tree/master/wrappers/python#installation) to install the packages for the Intel RealSense camera.
 
 ## Usage
 - Run `python realsense_pose_est.py`.
