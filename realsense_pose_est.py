@@ -183,7 +183,7 @@ try:
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
         color = reader.get_color(color_image)
-        depth = reader.get_depth(depth_image).astype(np.float32)
+        depth = reader.get_depth(depth_image)
         pose = est.track_one(rgb=color, depth=depth, K=reader.K, iteration=2)
         center_pose = pose@np.linalg.inv(to_origin)
         vis = draw_posed_3d_box(reader.K, img=color, ob_in_cam=center_pose, bbox=bbox)
