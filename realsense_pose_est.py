@@ -15,6 +15,7 @@ input_point = np.array([[860, 440]])
 input_label = np.array([1])
 color_image = None
 mask_flag = False
+num_poses = 1
 
 def get_camera_intrinsics(pipeline):
     # get camera intrinsics
@@ -67,47 +68,48 @@ def prepare_pose(pipeline):
     predictor = SamPredictor(sam)
     final_color_image = None
     mask_id = 0
-    while True:
-        frames = pipeline.wait_for_frames()
-        aligned_frames = align.process(frames)
-        color_frame = aligned_frames.get_color_frame()
-        depth_frame = aligned_frames.get_depth_frame()
-        if color_frame:
-            color_image = np.asanyarray(color_frame.get_data())
-            depth_image = np.asanyarray(depth_frame.get_data())
-            final_color_image = color_image.copy()
-            cv2.namedWindow("Color Image")
-            cv2.setMouseCallback("Color Image", mouse_callback)
-            cv2.imshow('Color Image', color_image)
-            if mask_flag:
-                predictor.set_image(color_image)
-                masks, scores, logits = predictor.predict(
-                point_coords=input_point,
-                point_labels=input_label,
-                multimask_output=True,
-                )
-                # for i, (mask, score) in enumerate(zip(masks, scores)):
-                #     plt.figure(figsize=(10,10))
-                #     show_mask(mask, plt.gca())
-                #     show_points(input_point, input_label, plt.gca())
-                #     plt.title(f"Mask {i+1}, Score: {score:.3f}", fontsize=18)
-                #     plt.axis('off')
-                #     plt.show()  
-                # mask_id = input("选择掩码：")
-                # mask_id = int(mask_id) - 1
-                # print(f"选择掩码第{mask_id+1}个掩码")
-                max_id = np.argmax(scores)
-                show_mask(masks[max_id], plt.gca())
-                show_points(input_point, input_label, plt.gca())
-                plt.title(f"Mask {max_id+1}, Score: {scores[max_id]:.3f}", fontsize=18)
-                plt.show()
-                mask_flag = False
-            key = cv2.waitKey(1) & 0xFF
-            if key == 27:  # 按 ESC 退出
-                cv2.destroyAllWindows()
-                break
-    binary_mask = (masks[max_id] * 255).astype(np.uint8)
-    return final_color_image, binary_mask, depth_image
+    mask_list = []
+    color_images = []
+    depth_images = []
+    for i in range(num_poses):
+        while True:
+            frames = pipeline.wait_for_frames()
+            aligned_frames = align.process(frames)
+            color_frame = aligned_frames.get_color_frame()
+            depth_frame = aligned_frames.get_depth_frame()
+            if color_frame:
+                color_image = np.asanyarray(color_frame.get_data())
+                depth_image = np.asanyarray(depth_frame.get_data())
+                final_color_image = color_image.copy()
+                cv2.namedWindow("Color Image")
+                cv2.setMouseCallback("Color Image", mouse_callback)
+                cv2.imshow('Color Image', color_image)
+                if mask_flag:
+                    predictor.set_image(color_image)
+                    masks, scores, logits = predictor.predict(
+                    point_coords=input_point,
+                    point_labels=input_label,
+                    multimask_output=True,
+                    )
+                    max_id = np.argmax(scores)
+                    show_mask(masks[max_id], plt.gca())
+                    show_points(input_point, input_label, plt.gca())
+                    plt.title(f"Mask {max_id+1}, Score: {scores[max_id]:.3f}", fontsize=18)
+                    plt.show()
+                    mask_flag = False
+
+                key = cv2.waitKey(1) & 0xFF
+                if key == 27:  # 按 ESC 退出
+                    binary_mask = (masks[max_id] * 255).astype(np.uint8)
+                    mask_list.append(binary_mask)
+                    color_images.append(color_image)
+                    depth_images.append(depth_image)
+                    cv2.destroyAllWindows()
+                    break
+
+    del sam, predictor
+    torch.cuda.empty_cache()
+    return color_images, mask_list, depth_images
 
 pipeline = rs.pipeline()
 config = rs.config()
@@ -140,21 +142,37 @@ depth_scale = depth_sensor.get_depth_scale()
 align_to = rs.stream.color
 align = rs.align(align_to)
 
-mesh_file = '/home/yumio/Code/realsense_pose_est/foundationpose/demo_data/square_table_leg/mesh/square_table_leg.obj'
-test_scene_dir = '/home/yumio/Code/realsense_pose_est/foundationpose/demo_data/square_table_leg'
+mesh_files = []
+mesh_files.append('/home/yumio/Code/realsense_pose_est/foundationpose/demo_data/square_table_leg/mesh/square_table_leg.obj')
+mesh_files.append('/home/yumio/Code/realsense_pose_est/foundationpose/demo_data/square_table/mesh/square_table.obj')
+test_scene_dirs = []
+test_scene_dirs.append('/home/yumio/Code/realsense_pose_est/foundationpose/demo_data/square_table_leg')
+test_scene_dirs.append('/home/yumio/Code/realsense_pose_est/foundationpose/demo_data/square_table')
 code_dir = os.path.dirname(os.path.realpath(__file__))
 debug = 1
 debug_dir = f'{code_dir}/debug'
 est_refine_iter = 5
 track_refine_iter = 2
-mesh = trimesh.load(mesh_file)
-to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
-bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
+
 scorer = ScorePredictor()
 refiner = PoseRefinePredictor()
 glctx = dr.RasterizeCudaContext()
-est = FoundationPose(model_pts=mesh.vertices, model_normals=mesh.vertex_normals, mesh=mesh, scorer=scorer, refiner=refiner, debug_dir=debug_dir, debug=debug, glctx=glctx)
-reader = YcbineoatReader(video_dir=test_scene_dir, shorter_side=360, zfar=np.inf)
+
+meshs = []
+to_origins = []
+extents = []
+bboxs = []
+ests = []
+readers = []
+for i in range(num_poses):
+    meshs.append(trimesh.load(mesh_files[i], force='mesh'))
+    to_origin, extent = trimesh.bounds.oriented_bounds(meshs[i])
+    to_origins.append(to_origin)
+    extents.append(extent)
+    bboxs.append(np.stack([-extent/2, extent/2], axis=0).reshape(2,3))
+    ests.append(FoundationPose(model_pts=meshs[i].vertices, model_normals=meshs[i].vertex_normals, mesh=meshs[i], scorer=scorer, refiner=refiner, debug_dir=debug_dir, debug=debug, glctx=glctx))
+    readers.append(YcbineoatReader(video_dir=test_scene_dirs[i], shorter_side=360, zfar=np.inf))
+
 logging.info("estimator initialization done")
 
 color_image, mask, depth_image = prepare_pose(pipeline)
@@ -163,13 +181,15 @@ color_image, mask, depth_image = prepare_pose(pipeline)
 #     cv2.imshow('mask', mask)
 #     cv2.imshow('depth', depth_image)
 #     key = cv2.waitKey(1)
-color = reader.get_color(color_image)
-mask = reader.get_mask(mask)
-depth = reader.get_depth(depth_image)
-pose = est.register(K=reader.K, rgb=color, depth=depth, ob_mask=mask, iteration=5)
-center_pose = pose@np.linalg.inv(to_origin)
-vis = draw_posed_3d_box(reader.K, img=color, ob_in_cam=center_pose, bbox=bbox)
-vis = draw_xyz_axis(color, ob_in_cam=center_pose, scale=0.1, K=reader.K, thickness=3, transparency=0, is_input_rgb=True)
+colors = [readers[i].get_color(color_image[i]) for i in range(num_poses)]
+masks = [readers[i].get_mask(mask[i]) for i in range(num_poses)]
+depths = [readers[i].get_depth(depth_image[i]) for i in range(num_poses)]
+poses = [ests[i].register(K=readers[i].K, rgb=colors[i], depth=depths[i], ob_mask=masks[i], iteration=est_refine_iter) for i in range(num_poses)]
+center_poses = [poses[i]@np.linalg.inv(to_origins[i]) for i in range(num_poses)]
+vis = draw_posed_3d_box(readers[0].K, img=colors[0], ob_in_cam=center_poses[0], bbox=bboxs[0])
+vis = draw_xyz_axis(vis, ob_in_cam=center_poses[0], scale=0.1, K=readers[0].K, thickness=3, transparency=0, is_input_rgb=True)
+# vis = draw_posed_3d_box(readers[1].K, img=vis, ob_in_cam=center_poses[1], bbox=bboxs[1])
+# vis = draw_xyz_axis(vis, ob_in_cam=center_poses[1], scale=0.1, K=readers[1].K, thickness=3, transparency=0, is_input_rgb=True)
 cv2.imshow('1', vis[...,::-1])
 cv2.waitKey(1)
 try:
@@ -182,12 +202,14 @@ try:
             continue
         depth_image = np.asanyarray(depth_frame.get_data())
         color_image = np.asanyarray(color_frame.get_data())
-        color = reader.get_color(color_image)
-        depth = reader.get_depth(depth_image)
-        pose = est.track_one(rgb=color, depth=depth, K=reader.K, iteration=2)
-        center_pose = pose@np.linalg.inv(to_origin)
-        vis = draw_posed_3d_box(reader.K, img=color, ob_in_cam=center_pose, bbox=bbox)
-        vis = draw_xyz_axis(color, ob_in_cam=center_pose, scale=0.1, K=reader.K, thickness=3, transparency=0, is_input_rgb=True)
+        color = readers[0].get_color(color_image)
+        depth = readers[0].get_depth(depth_image)
+        poses = [ests[i].track_one(rgb=color, depth=depth, K=readers[i].K, iteration=2) for i in range(num_poses)]
+        center_poses = [poses[i]@np.linalg.inv(to_origins[i]) for i in range(num_poses)]
+        vis = draw_posed_3d_box(readers[0].K, img=color, ob_in_cam=center_poses[0], bbox=bboxs[0])
+        vis = draw_xyz_axis(vis, ob_in_cam=center_poses[0], scale=0.1, K=readers[0].K, thickness=3, transparency=0, is_input_rgb=True)
+        vis = draw_posed_3d_box(readers[1].K, img=vis, ob_in_cam=center_poses[1], bbox=bboxs[1])
+        vis = draw_xyz_axis(vis, ob_in_cam=center_poses[1], scale=0.1, K=readers[1].K, thickness=3, transparency=0, is_input_rgb=True)
         cv2.imshow('1', vis[...,::-1])
         cv2.waitKey(1)
 finally:
