@@ -15,7 +15,7 @@ input_point = np.array([[860, 440]])
 input_label = np.array([1])
 color_image = None
 mask_flag = False
-num_poses = 1
+num_poses = 2
 
 def get_camera_intrinsics(pipeline):
     # get camera intrinsics
@@ -188,8 +188,9 @@ poses = [ests[i].register(K=readers[i].K, rgb=colors[i], depth=depths[i], ob_mas
 center_poses = [poses[i]@np.linalg.inv(to_origins[i]) for i in range(num_poses)]
 vis = draw_posed_3d_box(readers[0].K, img=colors[0], ob_in_cam=center_poses[0], bbox=bboxs[0])
 vis = draw_xyz_axis(vis, ob_in_cam=center_poses[0], scale=0.1, K=readers[0].K, thickness=3, transparency=0, is_input_rgb=True)
-# vis = draw_posed_3d_box(readers[1].K, img=vis, ob_in_cam=center_poses[1], bbox=bboxs[1])
-# vis = draw_xyz_axis(vis, ob_in_cam=center_poses[1], scale=0.1, K=readers[1].K, thickness=3, transparency=0, is_input_rgb=True)
+for i in range(1, num_poses):
+    vis = draw_posed_3d_box(readers[i].K, img=vis, ob_in_cam=center_poses[i], bbox=bboxs[i])
+    vis = draw_xyz_axis(vis, ob_in_cam=center_poses[i], scale=0.1, K=readers[i].K, thickness=3, transparency=0, is_input_rgb=True)
 cv2.imshow('1', vis[...,::-1])
 cv2.waitKey(1)
 try:
@@ -208,8 +209,9 @@ try:
         center_poses = [poses[i]@np.linalg.inv(to_origins[i]) for i in range(num_poses)]
         vis = draw_posed_3d_box(readers[0].K, img=color, ob_in_cam=center_poses[0], bbox=bboxs[0])
         vis = draw_xyz_axis(vis, ob_in_cam=center_poses[0], scale=0.1, K=readers[0].K, thickness=3, transparency=0, is_input_rgb=True)
-        vis = draw_posed_3d_box(readers[1].K, img=vis, ob_in_cam=center_poses[1], bbox=bboxs[1])
-        vis = draw_xyz_axis(vis, ob_in_cam=center_poses[1], scale=0.1, K=readers[1].K, thickness=3, transparency=0, is_input_rgb=True)
+        for i in range(1, num_poses):
+            vis = draw_posed_3d_box(readers[1].K, img=vis, ob_in_cam=center_poses[1], bbox=bboxs[1])
+            vis = draw_xyz_axis(vis, ob_in_cam=center_poses[1], scale=0.1, K=readers[1].K, thickness=3, transparency=0, is_input_rgb=True)
         cv2.imshow('1', vis[...,::-1])
         cv2.waitKey(1)
 finally:
